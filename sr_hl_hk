@@ -1,0 +1,5 @@
+#!/bin/bash
+
+sr $(ls /usr/lib/surfraw | dmenu) $(xclip -o -selection primary)
+
+# I love that this is one file. It's OP
