@@ -1,0 +1,36 @@
+#!/bin/bash
+# elvis: explainshell -- explain shell commands
+# $Id$
+# Author: Mat Allen
+. surfraw || exit 1
+
+# w3_config_hook () {
+#     def   SURFRAW_explainshell_language	"$SURFRAW_lang"
+#     defyn SURFRAW_explainshell_deletionpedia   no
+#     def   SURFRAW_explainshell_fallback        explainshell
+# }
+
+w3_usage_hook () {
+    cat <<EOF
+Usage: $w3_argv0 [options] [search-string]
+Description:
+  Explain shell commands
+
+Examples:
+  $w3_argv0 tar -xzf archive.tar.gz
+EOF
+    w3_global_usage
+}
+
+w3_config
+# requoting not needed
+# SURFRAW_quote_ifs=1
+w3_parse_args "$@"
+
+
+if test -z "$w3_args"; then
+    w3_browse_url "http://explainshell.com/"
+else
+    escaped_args=`w3_url_of_arg $w3_args`
+    w3_browse_url "http://explainshell.com/explain?cmd=${escaped_args}"
+fi
