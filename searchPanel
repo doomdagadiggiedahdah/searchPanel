@@ -1,0 +1,9 @@
+#!/bin/bash
+
+sr $(ls /usr/lib/surfraw /home/mat/.config/surfraw/elvi | dmenu) $(xclip -o -selection primary)
+
+
+# It's also possible to hookup FF bangs to this too, I get the list of bangs, pump into dmenu, pending sr or FF it selects that search engine and then goes
+
+# Actually, the highlight or no should be easy right, if the highlighted section is just the $(xclip -o -selection primary) then if that's empty, then queue the zenity window.
+# That's only if the primary is holding JUST the highlighted text, otherwise there will be something in the paste buffer, which could be DANGEROUS.
