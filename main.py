@@ -15,7 +15,7 @@ I would like to use this example as a template to create another file like this 
 - MOST IMPORTANT, please update the two `w3_browse_url` lines to reflect the format for this website: {input_website}
     - Note: "{input_website}" has a search term at the end which is an example, that's where {escaped_args} should go, not the example search term.
     - example: if the target website used this format, "http://www.etymonline.com/?search=${escaped_args}" then the result should be: w3_browse_url "http://www.etymonline.com/?search=${escaped_args}"
-    - example: source "https://web.archive.org/web/20240000000000*/google.com" target "w3_browse_url https://web.archive.org/web/20240000000000*/${escaped_args}"
+    - example: (note the removal of "google.com" from the source) source: "https://web.archive.org/web/20240000000000*/google.com" target: "w3_browse_url https://web.archive.org/web/20240000000000*/${escaped_args}"
 - replace the "#elvis: " line with a similar line based on the website provided {input_website}.
 - update the Description: and Example: lines to act similarly
 Please take the following website and convert it into a full file and only the file. Do not include any backticks like "```bash" in the script.
@@ -41,6 +41,9 @@ with open(elvi_name, "w+") as file:
 
 subprocess.run(["chmod", "+x", website_plain], check=True)
 os.rename(website_plain, surfraw_destination + website_plain)
+
+
+
 
 # master plan:
 # DONE get a seed file / import, 
