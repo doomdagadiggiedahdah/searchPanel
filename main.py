@@ -34,13 +34,13 @@ def textFromAI():
 new_surfraw = textFromAI()
 surfraw_file_path = surfraw_destination + new_surfraw
 
-elvi_name = input("what would you like the elvi to be named?")
+elvi_name = input("what would you like the elvi to be named?\n")
 
 with open(elvi_name, "w+") as file:
     file.write(new_surfraw)
 
-subprocess.run(["chmod", "+x", website_plain], check=True)
-os.rename(website_plain, surfraw_destination + website_plain)
+subprocess.run(["chmod", "+x", elvi_name], check=True)
+os.rename(elvi_name, surfraw_destination + elvi_name)
 
 
 
