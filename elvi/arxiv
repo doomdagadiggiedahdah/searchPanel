@@ -1,0 +1,25 @@
+#!/bin/sh
+# Author: Mat Allen
+# arxiv: search		-- Search for research articles on arXiv.org
+. surfraw || exit 1
+
+w3_usage_hook () {
+    cat <<EOF
+Usage: $w3_argv0 [options] [search words]...
+Description:
+  Search for research articles on arXiv.org
+Example:
+  search A Multimodal Automated Interpretability Agent
+EOF
+    w3_global_usage
+}
+
+w3_config
+w3_parse_args "$@"
+# w3_args now contains a list of arguments
+if test -z "$w3_args"; then
+    w3_browse_url "https://arxiv.org/search/?query="
+else
+    escaped_args=`w3_url_of_arg $w3_args`
+    w3_browse_url "https://arxiv.org/search/?query=${escaped_args}&searchtype=title&abstracts=show&order=-announced_date_first&size=50"
+fi
