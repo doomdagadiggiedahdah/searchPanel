@@ -1,0 +1,26 @@
+#!/bin/sh
+# Author: Mat Allen
+# elvis: linkedin		-- Look up profiles on LinkedIn
+. surfraw || exit 1
+
+w3_usage_hook () {
+    cat <<EOF
+Usage: $w3_argv0 [options] [search terms]...
+Description:
+  Look up profiles on LinkedIn using the provided keywords.
+Example:
+  linkedin Eleni Angelou
+  Opens LinkedIn search results for "Eleni Angelou".
+EOF
+    w3_global_usage
+}
+
+w3_config
+w3_parse_args "$@"
+# w3_args now contains a list of arguments
+if test -z "$w3_args"; then
+    w3_browse_url "https://www.linkedin.com/search/results/all/?keywords="
+else
+    escaped_args=`w3_url_of_arg "$w3_args"`
+    w3_browse_url "https://www.linkedin.com/search/results/all/?keywords=${escaped_args}&origin=GLOBAL_SEARCH_HEADER&sid=-8T"
+fi

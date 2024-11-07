@@ -1,0 +1,26 @@
+#!/bin/sh
+# Author: Mat Allen
+# hf: full-text-search		-- Search the Hugging Face Model Hub for full-text matches
+. surfraw || exit 1
+
+w3_usage_hook () {
+    cat <<EOF
+Usage: $w3_argv0 [options] [search terms]...
+Description:
+  Search the Hugging Face Model Hub for full-text matches
+Example:
+  hf transformers
+  '{"id":"models"}'
+EOF
+    w3_global_usage
+}
+
+w3_config
+w3_parse_args "$@"
+# w3_args now contains a list of arguments
+if test -z "$w3_args"; then
+    w3_browse_url "https://huggingface.co/search/full-text?q="
+else
+    escaped_args=`w3_url_of_arg $w3_args`
+    w3_browse_url "https://huggingface.co/search/full-text?q=${escaped_args}"
+fi

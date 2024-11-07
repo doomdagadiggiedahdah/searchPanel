@@ -23,7 +23,7 @@ Please take the following website and convert it into a full file and only the f
 
 client = OpenAI()
 def textFromAI():
-    res = client.chat.completions.create(model = "gpt-3.5-turbo",
+    res = client.chat.completions.create(model = "gpt-4o-mini",
     messages=[
         {"role": "system", "content": prompt},
         {"role": "user", "content": input_website}

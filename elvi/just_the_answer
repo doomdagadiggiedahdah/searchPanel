@@ -1,0 +1,26 @@
+#!/bin/sh
+# Author: Mat Allen
+# elvis: justtheanswer		-- Look up answers at justtheanswer.vercel.app
+. surfraw || exit 1
+
+w3_usage_hook () {
+    cat <<EOF
+Usage: $w3_argv0 [options] [search words]...
+Description:
+  Look up answers at justtheanswer.vercel.app
+Example:
+  justtheanswer weather
+  'You can find the latest weather updates at justtheanswer.vercel.app.'
+EOF
+    w3_global_usage
+}
+
+w3_config
+w3_parse_args "$@"
+# w3_args now contains a list of arguments
+if test -z "$w3_args"; then
+    w3_browse_url "https://justtheanswer.vercel.app/"
+else
+    escaped_args=`w3_url_of_arg $w3_args`
+    w3_browse_url "https://justtheanswer.vercel.app/?q=${escaped_args}"
+fi
