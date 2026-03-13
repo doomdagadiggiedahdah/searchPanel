@@ -1,5 +1,5 @@
 #!/bin/sh
-# Author: Your Name
+# Author: Mat
 # x.com: Search Query - Search on x.com with specified query
 . surfraw || exit 1
 
