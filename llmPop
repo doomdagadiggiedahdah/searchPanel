@@ -1,0 +1,161 @@
+#!/usr/bin/python3
+"""
+llmPop - highlight text, press hotkey, get an LLM answer in a floating chat window.
+Uses the OpenAI API (set OPENAI_API_KEY env var).
+Ctrl+W or the close button to dismiss.
+"""
+
+import sys
+import os
+
+# Pull in venv packages (openai etc.) while using system python's working tkinter
+_venv_site = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          ".venv/lib/python3.12/site-packages")
+if _venv_site not in sys.path:
+    sys.path.insert(0, _venv_site)
+
+import subprocess
+import sys
+import threading
+import tkinter as tk
+from tkinter import scrolledtext
+
+from openai import OpenAI
+
+MODEL = "gpt-4o-mini"
+
+
+def get_selection():
+    try:
+        return subprocess.check_output(
+            ["xclip", "-o", "-selection", "primary"], text=True
+        ).strip()
+    except subprocess.CalledProcessError:
+        return ""
+
+
+class ChatWindow:
+    def __init__(self, root, initial_query):
+        self.root = root
+        self.client = OpenAI()
+        self.history = []
+
+        root.title("llmPop")
+        root.geometry("680x520")
+        root.configure(bg="#1e1e2e")
+        root.bind("<Control-w>", lambda e: root.destroy())
+
+        # Chat display
+        self.display = scrolledtext.ScrolledText(
+            root,
+            wrap=tk.WORD,
+            bg="#1e1e2e",
+            fg="#cdd6f4",
+            font=("Monospace", 11),
+            relief=tk.FLAT,
+            padx=10,
+            pady=10,
+            state=tk.DISABLED,
+            cursor="arrow",
+        )
+        self.display.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 4))
+
+        self.display.tag_config("user", foreground="#89b4fa", font=("Monospace", 11, "bold"))
+        self.display.tag_config("assistant", foreground="#cdd6f4")
+        self.display.tag_config("dim", foreground="#585b70")
+
+        # Input area
+        input_frame = tk.Frame(root, bg="#313244")
+        input_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
+
+        self.input = tk.Text(
+            input_frame,
+            height=3,
+            bg="#313244",
+            fg="#cdd6f4",
+            font=("Monospace", 11),
+            relief=tk.FLAT,
+            padx=8,
+            pady=6,
+            insertbackground="#cdd6f4",
+        )
+        self.input.pack(fill=tk.X, side=tk.LEFT, expand=True)
+        self.input.bind("<Return>", self.on_enter)
+        self.input.bind("<Shift-Return>", lambda e: None)  # allow newline with shift
+        self.input.focus_set()
+
+        send_btn = tk.Button(
+            input_frame,
+            text="Send",
+            bg="#89b4fa",
+            fg="#1e1e2e",
+            font=("Monospace", 10, "bold"),
+            relief=tk.FLAT,
+            padx=10,
+            command=self.send_current,
+        )
+        send_btn.pack(side=tk.RIGHT, padx=(4, 0), pady=4)
+
+        # Kick off initial query
+        if initial_query:
+            self.ask(initial_query)
+
+    def append(self, text, tag=None):
+        self.display.config(state=tk.NORMAL)
+        if tag:
+            self.display.insert(tk.END, text, tag)
+        else:
+            self.display.insert(tk.END, text)
+        self.display.see(tk.END)
+        self.display.config(state=tk.DISABLED)
+
+    def on_enter(self, event):
+        # Plain Enter sends; Shift+Enter inserts newline
+        if not event.state & 0x1:  # Shift not held
+            self.send_current()
+            return "break"
+
+    def send_current(self):
+        query = self.input.get("1.0", tk.END).strip()
+        if not query:
+            return
+        self.input.delete("1.0", tk.END)
+        self.ask(query)
+
+    def ask(self, query):
+        self.append(f"\nyou: {query}\n", "user")
+        self.append("assistant: ", "dim")
+        self.history.append({"role": "user", "content": query})
+        threading.Thread(target=self._stream, daemon=True).start()
+
+    def _stream(self):
+        response_text = ""
+        try:
+            stream = self.client.chat.completions.create(
+                model=MODEL,
+                messages=self.history,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    response_text += delta
+                    self.root.after(0, self.append, delta, "assistant")
+        except Exception as e:
+            self.root.after(0, self.append, f"\n[error: {e}]\n", "dim")
+            return
+
+        self.history.append({"role": "assistant", "content": response_text})
+        self.root.after(0, self.append, "\n", None)
+
+
+def main():
+    query = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else get_selection()
+
+    root = tk.Tk()
+    ChatWindow(root, query)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
