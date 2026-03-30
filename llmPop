@@ -15,7 +15,6 @@ if _venv_site not in sys.path:
     sys.path.insert(0, _venv_site)
 
 import subprocess
-import sys
 import threading
 import tkinter as tk
 from tkinter import scrolledtext
@@ -23,6 +22,17 @@ from tkinter import scrolledtext
 from openai import OpenAI
 
 MODEL = "gpt-4o-mini"
+
+SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+BG        = "#1e1e2e"
+BG_INPUT  = "#313244"
+BG_HEADER = "#181825"
+FG_MAIN   = "#cdd6f4"
+FG_USER   = "#89b4fa"
+FG_DIM    = "#585b70"
+ACCENT    = "#89b4fa"
+BORDER    = "#45475a"
 
 
 def get_selection():
@@ -38,88 +48,231 @@ class ChatWindow:
     def __init__(self, root, initial_query):
         self.root = root
         self.client = OpenAI()
+        self.streaming = False
+        self._spinner_index = 0
+        self._spinner_job = None
+        self._cursor_job = None
+        self._cursor_visible = False
         self.history = [
             {
                 "role": "system",
                 "content": (
                     "You are a quick-briefing assistant. The user has highlighted something "
                     "they don't recognise and wants to get up to speed fast.\n\n"
-                    "For every initial query:\n"
-                    "1. Give a plain-language summary they can read in 20-30 seconds — "
-                    "what it is, why it matters, the key thing to know.\n"
-                    "2. If the topic has meaningful depth or follow-on complexity, end with "
-                    "a numbered 'To go deeper:' list of 2-4 concrete next steps or sub-topics "
-                    "(e.g. specific terms to look up, a key paper, a hands-on thing to try).\n"
-                    "If it's genuinely simple, skip the 'To go deeper' section entirely.\n\n"
+                    "For every initial query, respond in markdown using this structure:\n\n"
+                    "**[Topic name]** — 1-2 sentences: what it is and why it matters.\n\n"
+                    "- 2-4 bullet points covering the key things to know\n\n"
+                    "**The problem it solves:** (only include if the topic is a tool, technique, "
+                    "framework, or solution — briefly state the problem it addresses)\n\n"
+                    "**To go deeper:**\n"
+                    "1. ...\n"
+                    "2. ...\n"
+                    "(numbered list of 2-4 concrete next steps or sub-topics — specific terms, "
+                    "a key paper, a hands-on thing to try. Omit entirely if the topic is simple.)\n\n"
                     "If the user replies with just a number (e.g. '2' or '1, 3'), treat it as "
-                    "a request to expound on that numbered item — give a thorough explanation "
-                    "of that sub-topic, and if it warrants it, offer another numbered 'To go "
-                    "deeper:' list for that sub-topic too.\n\n"
-                    "Be direct and skip filler. No lengthy intros."
+                    "a request to expound on that numbered 'To go deeper' item. Use the same "
+                    "markdown structure, and include a new numbered 'To go deeper:' list if the "
+                    "sub-topic warrants it.\n\n"
+                    "Be direct. No filler, no lengthy intros."
                 ),
             }
         ]
 
-        root.title("llmPop")
-        root.geometry("680x520")
-        root.configure(bg="#1e1e2e")
-        root.bind("<Control-w>", lambda e: root.destroy())
+        root.geometry("680x700")
+        root.configure(bg=BORDER)
+        root.attributes("-alpha", 0.0)
 
-        # Chat display
+        # Outer border frame (gives a 1px glow effect)
+        outer = tk.Frame(root, bg=BORDER, padx=1, pady=1)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        inner = tk.Frame(outer, bg=BG)
+        inner.pack(fill=tk.BOTH, expand=True)
+
+        # ── Header bar ──────────────────────────────────────────────
+        self.header = tk.Frame(inner, bg=BG_HEADER, height=36)
+        self.header.pack(fill=tk.X)
+        self.header.pack_propagate(False)
+
+        self.title_label = tk.Label(
+            self.header,
+            text="⬡  llmPop",
+            bg=BG_HEADER,
+            fg=ACCENT,
+            font=("Monospace", 10, "bold"),
+            anchor="w",
+            padx=12,
+        )
+        self.title_label.pack(side=tk.LEFT, fill=tk.Y)
+
+        close_btn = tk.Label(
+            self.header,
+            text="✕",
+            bg=BG_HEADER,
+            fg=FG_DIM,
+            font=("Monospace", 12),
+            padx=12,
+            cursor="hand2",
+        )
+        close_btn.pack(side=tk.RIGHT, fill=tk.Y)
+        close_btn.bind("<Button-1>", lambda e: root.destroy())
+        close_btn.bind("<Enter>", lambda e: close_btn.config(fg="#f38ba8"))
+        close_btn.bind("<Leave>", lambda e: close_btn.config(fg=FG_DIM))
+
+        # Make header draggable
+        for widget in (self.header, self.title_label):
+            widget.bind("<ButtonPress-1>", self._drag_start)
+            widget.bind("<B1-Motion>", self._drag_motion)
+
+        # Thin accent line under header
+        tk.Frame(inner, bg=ACCENT, height=1).pack(fill=tk.X)
+
+        # ── Chat display ────────────────────────────────────────────
         self.display = scrolledtext.ScrolledText(
-            root,
+            inner,
             wrap=tk.WORD,
-            bg="#1e1e2e",
-            fg="#cdd6f4",
+            bg=BG,
+            fg=FG_MAIN,
             font=("Monospace", 11),
             relief=tk.FLAT,
-            padx=10,
-            pady=10,
+            padx=14,
+            pady=12,
             state=tk.DISABLED,
             cursor="arrow",
+            selectbackground="#45475a",
         )
-        self.display.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 4))
+        self.display.pack(fill=tk.BOTH, expand=True)
 
-        self.display.tag_config("user", foreground="#89b4fa", font=("Monospace", 11, "bold"))
-        self.display.tag_config("assistant", foreground="#cdd6f4")
-        self.display.tag_config("dim", foreground="#585b70")
+        self.display.tag_config("user",      foreground=FG_USER,  font=("Monospace", 11, "bold"))
+        self.display.tag_config("assistant", foreground=FG_MAIN)
+        self.display.tag_config("dim",       foreground=FG_DIM)
+        self.display.tag_config("spinner",   foreground=ACCENT,   font=("Monospace", 13, "bold"))
+        self.display.tag_config("cursor",    foreground=ACCENT)
 
-        # Input area
-        input_frame = tk.Frame(root, bg="#313244")
-        input_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
+        # Thin separator
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill=tk.X)
+
+        # ── Input area ──────────────────────────────────────────────
+        input_frame = tk.Frame(inner, bg=BG_INPUT, padx=6, pady=6)
+        input_frame.pack(fill=tk.X)
 
         self.input = tk.Text(
             input_frame,
-            height=3,
-            bg="#313244",
-            fg="#cdd6f4",
+            height=2,
+            bg=BG_INPUT,
+            fg=FG_MAIN,
             font=("Monospace", 11),
             relief=tk.FLAT,
-            padx=8,
-            pady=6,
-            insertbackground="#cdd6f4",
+            padx=6,
+            pady=4,
+            insertbackground=ACCENT,
         )
         self.input.pack(fill=tk.X, side=tk.LEFT, expand=True)
         self.input.bind("<Return>", self.on_enter)
-        self.input.bind("<Shift-Return>", lambda e: None)  # allow newline with shift
         self.input.focus_set()
 
-        send_btn = tk.Button(
+        send_btn = tk.Label(
             input_frame,
-            text="Send",
-            bg="#89b4fa",
-            fg="#1e1e2e",
-            font=("Monospace", 10, "bold"),
-            relief=tk.FLAT,
+            text="↵",
+            bg=ACCENT,
+            fg=BG,
+            font=("Monospace", 14, "bold"),
             padx=10,
-            command=self.send_current,
+            cursor="hand2",
         )
-        send_btn.pack(side=tk.RIGHT, padx=(4, 0), pady=4)
+        send_btn.pack(side=tk.RIGHT, padx=(6, 0))
+        send_btn.bind("<Button-1>", lambda e: self.send_current())
 
-        # Kick off initial query
+        root.bind("<Control-w>", lambda e: root.destroy())
+
+        # UTILITY hint tells GNOME to respect our position
+        root.wm_attributes("-type", "dialog")
+        root.withdraw()
+        root.update_idletasks()
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        x = sw - 680 - 24
+        y = 48
+        root.geometry(f"680x700+{x}+{y}")
+        root.deiconify()
+
+        # Fade in
+        self._fade_in()
+
         if initial_query:
+            short = initial_query[:48] + "…" if len(initial_query) > 48 else initial_query
+            self.title_label.config(text=f"⬡  {short}")
             self.ask(initial_query)
 
+    # ── Drag ────────────────────────────────────────────────────────
+    def _drag_start(self, event):
+        self._drag_x = event.x_root - self.root.winfo_x()
+        self._drag_y = event.y_root - self.root.winfo_y()
+
+    def _drag_motion(self, event):
+        self.root.geometry(f"+{event.x_root - self._drag_x}+{event.y_root - self._drag_y}")
+
+    # ── Fade in ─────────────────────────────────────────────────────
+    def _fade_in(self, alpha=0.0):
+        alpha = min(alpha + 0.07, 1.0)
+        self.root.attributes("-alpha", alpha)
+        if alpha < 1.0:
+            self.root.after(16, self._fade_in, alpha)
+
+    # ── Spinner ─────────────────────────────────────────────────────
+    def _start_spinner(self):
+        self._spinner_mark = self.display.index(tk.END)
+        self.display.config(state=tk.NORMAL)
+        self.display.insert(tk.END, " " + SPINNER_FRAMES[0], "spinner")
+        self.display.config(state=tk.DISABLED)
+        self._spinner_job = self.root.after(80, self._tick_spinner)
+
+    def _tick_spinner(self):
+        self._spinner_index = (self._spinner_index + 1) % len(SPINNER_FRAMES)
+        self.display.config(state=tk.NORMAL)
+        # Replace last char (the spinner frame)
+        self.display.delete("end-2c", "end-1c")
+        self.display.insert("end-1c", SPINNER_FRAMES[self._spinner_index], "spinner")
+        self.display.config(state=tk.DISABLED)
+        self._spinner_job = self.root.after(80, self._tick_spinner)
+
+    def _stop_spinner(self):
+        if self._spinner_job:
+            self.root.after_cancel(self._spinner_job)
+            self._spinner_job = None
+        # Remove the spinner character
+        self.display.config(state=tk.NORMAL)
+        self.display.delete("end-2c", tk.END)
+        self.display.config(state=tk.DISABLED)
+
+    # ── Blinking cursor ─────────────────────────────────────────────
+    def _start_cursor(self):
+        self._cursor_visible = True
+        self.display.config(state=tk.NORMAL)
+        self.display.insert(tk.END, "▊", "cursor")
+        self.display.config(state=tk.DISABLED)
+        self._cursor_job = self.root.after(500, self._tick_cursor)
+
+    def _tick_cursor(self):
+        self._cursor_visible = not self._cursor_visible
+        self.display.config(state=tk.NORMAL)
+        self.display.delete("end-2c", "end-1c")
+        self.display.insert("end-1c", "▊" if self._cursor_visible else " ", "cursor")
+        self.display.config(state=tk.DISABLED)
+        self._cursor_job = self.root.after(500, self._tick_cursor)
+
+    def _stop_cursor(self):
+        if self._cursor_job:
+            self.root.after_cancel(self._cursor_job)
+            self._cursor_job = None
+        self.display.config(state=tk.NORMAL)
+        # Remove trailing cursor char
+        last = self.display.get("end-2c", "end-1c")
+        if last in ("▊", " "):
+            self.display.delete("end-2c", "end-1c")
+        self.display.config(state=tk.DISABLED)
+
+    # ── Display ─────────────────────────────────────────────────────
     def append(self, text, tag=None):
         self.display.config(state=tk.NORMAL)
         if tag:
@@ -129,9 +282,9 @@ class ChatWindow:
         self.display.see(tk.END)
         self.display.config(state=tk.DISABLED)
 
+    # ── Input ───────────────────────────────────────────────────────
     def on_enter(self, event):
-        # Plain Enter sends; Shift+Enter inserts newline
-        if not event.state & 0x1:  # Shift not held
+        if not event.state & 0x1:
             self.send_current()
             return "break"
 
@@ -144,11 +297,12 @@ class ChatWindow:
 
     def ask(self, query):
         self.append(f"\nyou: {query}\n", "user")
-        self.append("assistant: ", "dim")
         self.history.append({"role": "user", "content": query})
+        self._start_spinner()
         threading.Thread(target=self._stream, daemon=True).start()
 
     def _stream(self):
+        first_chunk = True
         response_text = ""
         try:
             stream = self.client.chat.completions.create(
@@ -159,14 +313,27 @@ class ChatWindow:
             for chunk in stream:
                 delta = chunk.choices[0].delta.content or ""
                 if delta:
+                    if first_chunk:
+                        self.root.after(0, self._stop_spinner)
+                        self.root.after(0, self._start_cursor)
+                        first_chunk = False
                     response_text += delta
-                    self.root.after(0, self.append, delta, "assistant")
+                    self.root.after(0, self._stream_chunk, delta)
         except Exception as e:
+            self.root.after(0, self._stop_spinner)
             self.root.after(0, self.append, f"\n[error: {e}]\n", "dim")
             return
 
         self.history.append({"role": "assistant", "content": response_text})
-        self.root.after(0, self.append, "\n", None)
+        self.root.after(0, self._stop_cursor)
+        self.root.after(0, self.append, "\n")
+
+    def _stream_chunk(self, delta):
+        # Insert before the blinking cursor
+        self.display.config(state=tk.NORMAL)
+        self.display.insert("end-2c", delta, "assistant")
+        self.display.see(tk.END)
+        self.display.config(state=tk.DISABLED)
 
 
 def main():
