@@ -1,6 +1,7 @@
 #!/bin/sh
 # Author: Mat Allen
 # omniSearch-img: omnisearch-img	-- Image search via self-hosted OmniSearch (localhost:5000)
+# Source: https://git.bwaaa.monster/omnisearch/about/
 . surfraw || exit 1
 
 w3_usage_hook () {
