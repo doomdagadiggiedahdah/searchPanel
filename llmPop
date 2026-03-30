@@ -7,6 +7,7 @@ Ctrl+W or the close button to dismiss.
 
 import sys
 import os
+import re
 
 # Pull in venv packages (openai etc.) while using system python's working tkinter
 _venv_site = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -25,14 +26,37 @@ MODEL = "gpt-4o-mini"
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-BG        = "#1e1e2e"
-BG_INPUT  = "#313244"
-BG_HEADER = "#181825"
-FG_MAIN   = "#cdd6f4"
-FG_USER   = "#89b4fa"
-FG_DIM    = "#585b70"
-ACCENT    = "#89b4fa"
-BORDER    = "#45475a"
+BG          = "#1e1e2e"
+BG_ALT      = "#181825"
+BG_INPUT    = "#313244"
+BG_HEADER   = "#181825"
+BG_CODE     = "#11111b"
+FG_MAIN     = "#cdd6f4"
+FG_USER     = "#89b4fa"
+FG_DIM      = "#585b70"
+FG_GREEN    = "#a6e3a1"
+FG_YELLOW   = "#f9e2af"
+FG_PINK     = "#f38ba8"
+FG_MAUVE    = "#cba6f7"
+ACCENT      = "#89b4fa"
+BORDER      = "#45475a"
+PLACEHOLDER = "#45475a"
+
+MONO  = ("Monospace", 11)
+MONO_B = ("Monospace", 11, "bold")
+MONO_I = ("Monospace", 11, "italic")
+MONO_BI = ("Monospace", 11, "bold italic")
+SANS  = ("Sans", 13, "bold")
+SANS2 = ("Sans", 12, "bold")
+
+# Basic syntax highlight keyword sets
+KW_KEYWORDS  = {"def", "class", "return", "import", "from", "if", "else", "elif",
+                "for", "while", "in", "not", "and", "or", "with", "as", "try",
+                "except", "finally", "raise", "pass", "break", "continue", "yield",
+                "lambda", "None", "True", "False", "self", "async", "await",
+                "function", "const", "let", "var", "=>", "export", "default"}
+KW_TYPES     = {"int", "str", "bool", "float", "list", "dict", "tuple", "set",
+                "bytes", "type", "object", "Any", "Optional", "Union"}
 
 
 def get_selection():
@@ -48,11 +72,11 @@ class ChatWindow:
     def __init__(self, root, initial_query):
         self.root = root
         self.client = OpenAI()
-        self.streaming = False
         self._spinner_index = 0
         self._spinner_job = None
-        self._cursor_job = None
-        self._cursor_visible = False
+        self._shimmer_job = None
+        self._shimmer_pos = 0
+        self._placeholder_active = False
         self.history = [
             {
                 "role": "system",
@@ -78,125 +102,101 @@ class ChatWindow:
             }
         ]
 
-        root.geometry("680x700")
+        root.geometry("680x820")
         root.configure(bg=BORDER)
         root.attributes("-alpha", 0.0)
 
-        # Outer border frame (gives a 1px glow effect)
+        # 1px border glow
         outer = tk.Frame(root, bg=BORDER, padx=1, pady=1)
         outer.pack(fill=tk.BOTH, expand=True)
-
         inner = tk.Frame(outer, bg=BG)
         inner.pack(fill=tk.BOTH, expand=True)
 
-        # ── Header bar ──────────────────────────────────────────────
+        # ── Header ──────────────────────────────────────────────────
         self.header = tk.Frame(inner, bg=BG_HEADER, height=36)
         self.header.pack(fill=tk.X)
         self.header.pack_propagate(False)
 
         self.title_label = tk.Label(
-            self.header,
-            text="⬡  llmPop",
-            bg=BG_HEADER,
-            fg=ACCENT,
-            font=("Monospace", 10, "bold"),
-            anchor="w",
-            padx=12,
+            self.header, text="⬡  llmPop",
+            bg=BG_HEADER, fg=ACCENT, font=("Monospace", 10, "bold"),
+            anchor="w", padx=12,
         )
         self.title_label.pack(side=tk.LEFT, fill=tk.Y)
 
         close_btn = tk.Label(
-            self.header,
-            text="✕",
-            bg=BG_HEADER,
-            fg=FG_DIM,
-            font=("Monospace", 12),
-            padx=12,
-            cursor="hand2",
+            self.header, text="✕",
+            bg=BG_HEADER, fg=FG_DIM, font=("Monospace", 12),
+            padx=12, cursor="hand2",
         )
         close_btn.pack(side=tk.RIGHT, fill=tk.Y)
         close_btn.bind("<Button-1>", lambda e: root.destroy())
-        close_btn.bind("<Enter>", lambda e: close_btn.config(fg="#f38ba8"))
-        close_btn.bind("<Leave>", lambda e: close_btn.config(fg=FG_DIM))
+        close_btn.bind("<Enter>",    lambda e: close_btn.config(fg=FG_PINK))
+        close_btn.bind("<Leave>",    lambda e: close_btn.config(fg=FG_DIM))
 
-        # Make header draggable
-        for widget in (self.header, self.title_label):
-            widget.bind("<ButtonPress-1>", self._drag_start)
-            widget.bind("<B1-Motion>", self._drag_motion)
+        for w in (self.header, self.title_label):
+            w.bind("<ButtonPress-1>", self._drag_start)
+            w.bind("<B1-Motion>",     self._drag_motion)
 
-        # Thin accent line under header
-        tk.Frame(inner, bg=ACCENT, height=1).pack(fill=tk.X)
+        # Shimmer bar (animated loading indicator)
+        self.shimmer_canvas = tk.Canvas(
+            inner, height=2, bg=BG_HEADER, highlightthickness=0
+        )
+        self.shimmer_canvas.pack(fill=tk.X)
+        self._shimmer_rect = self.shimmer_canvas.create_rectangle(
+            0, 0, 0, 2, fill=ACCENT, outline=""
+        )
 
         # ── Chat display ────────────────────────────────────────────
         self.display = scrolledtext.ScrolledText(
             inner,
-            wrap=tk.WORD,
-            bg=BG,
-            fg=FG_MAIN,
-            font=("Monospace", 11),
-            relief=tk.FLAT,
-            padx=14,
-            pady=12,
-            state=tk.DISABLED,
-            cursor="arrow",
+            wrap=tk.WORD, bg=BG, fg=FG_MAIN,
+            font=MONO, relief=tk.FLAT,
+            padx=16, pady=12,
+            state=tk.DISABLED, cursor="arrow",
             selectbackground="#45475a",
+            spacing1=2, spacing3=2,
         )
         self.display.pack(fill=tk.BOTH, expand=True)
+        self._setup_tags()
 
-        self.display.tag_config("user",      foreground=FG_USER,  font=("Monospace", 11, "bold"))
-        self.display.tag_config("assistant", foreground=FG_MAIN)
-        self.display.tag_config("dim",       foreground=FG_DIM)
-        self.display.tag_config("spinner",   foreground=ACCENT,   font=("Monospace", 13, "bold"))
-        self.display.tag_config("cursor",    foreground=ACCENT)
-
-        # Thin separator
+        # Separator
         tk.Frame(inner, bg=BORDER, height=1).pack(fill=tk.X)
 
-        # ── Input area ──────────────────────────────────────────────
-        input_frame = tk.Frame(inner, bg=BG_INPUT, padx=6, pady=6)
-        input_frame.pack(fill=tk.X)
+        # ── Input ───────────────────────────────────────────────────
+        self.input_frame = tk.Frame(inner, bg=BG_INPUT, padx=6, pady=6)
+        self.input_frame.pack(fill=tk.X)
 
         self.input = tk.Text(
-            input_frame,
-            height=2,
-            bg=BG_INPUT,
-            fg=FG_MAIN,
-            font=("Monospace", 11),
-            relief=tk.FLAT,
-            padx=6,
-            pady=4,
+            self.input_frame, height=2,
+            bg=BG_INPUT, fg=FG_MAIN, font=MONO,
+            relief=tk.FLAT, padx=6, pady=4,
             insertbackground=ACCENT,
         )
         self.input.pack(fill=tk.X, side=tk.LEFT, expand=True)
-        self.input.bind("<Return>", self.on_enter)
+        self.input.bind("<Return>",       self.on_enter)
+        self.input.bind("<FocusIn>",      self._input_focus_in)
+        self.input.bind("<FocusOut>",     self._input_focus_out)
         self.input.focus_set()
+        self._set_placeholder()
 
         send_btn = tk.Label(
-            input_frame,
-            text="↵",
-            bg=ACCENT,
-            fg=BG,
-            font=("Monospace", 14, "bold"),
-            padx=10,
-            cursor="hand2",
+            self.input_frame, text="↵",
+            bg=ACCENT, fg=BG, font=("Monospace", 14, "bold"),
+            padx=10, cursor="hand2",
         )
         send_btn.pack(side=tk.RIGHT, padx=(6, 0))
         send_btn.bind("<Button-1>", lambda e: self.send_current())
 
         root.bind("<Control-w>", lambda e: root.destroy())
 
-        # UTILITY hint tells GNOME to respect our position
         root.wm_attributes("-type", "dialog")
         root.withdraw()
         root.update_idletasks()
-        sw = root.winfo_screenwidth()
-        sh = root.winfo_screenheight()
-        x = sw - 680 - 24
-        y = 48
-        root.geometry(f"680x700+{x}+{y}")
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.geometry(f"680x820+{sw - 680 - 24}+{48}")
         root.deiconify()
 
-        # Fade in
         self._fade_in()
 
         if initial_query:
@@ -204,7 +204,34 @@ class ChatWindow:
             self.title_label.config(text=f"⬡  {short}")
             self.ask(initial_query)
 
-    # ── Drag ────────────────────────────────────────────────────────
+    # ── Tags ─────────────────────────────────────────────────────────
+    def _setup_tags(self):
+        d = self.display
+        d.tag_config("user",         foreground=FG_USER,   font=MONO_B, spacing1=6)
+        d.tag_config("assistant",    foreground=FG_MAIN,   font=MONO)
+        d.tag_config("dim",          foreground=FG_DIM,    font=MONO)
+        d.tag_config("spinner",      foreground=ACCENT,    font=("Monospace", 13, "bold"))
+        d.tag_config("bold",         foreground=FG_MAIN,   font=MONO_B)
+        d.tag_config("italic",       foreground=FG_MAIN,   font=MONO_I)
+        d.tag_config("bold_italic",  foreground=FG_MAIN,   font=MONO_BI)
+        d.tag_config("h1",           foreground=ACCENT,    font=("Sans", 14, "bold"), spacing1=8, spacing3=4)
+        d.tag_config("h2",           foreground=FG_MAUVE,  font=("Sans", 12, "bold"), spacing1=6, spacing3=2)
+        d.tag_config("h3",           foreground=FG_MAIN,   font=MONO_B, spacing1=4)
+        d.tag_config("inline_code",  foreground=FG_GREEN,  background=BG_CODE, font=MONO)
+        d.tag_config("code_block",   foreground=FG_GREEN,  background=BG_CODE,
+                     font=MONO, lmargin1=20, lmargin2=20, spacing1=4, spacing3=4)
+        d.tag_config("bullet",       foreground=FG_MAIN,   font=MONO, lmargin1=10, lmargin2=28)
+        d.tag_config("bullet_marker",foreground=ACCENT,    font=MONO_B)
+        d.tag_config("numbered",     foreground=FG_MAIN,   font=MONO, lmargin1=10, lmargin2=28)
+        d.tag_config("num_marker",   foreground=FG_YELLOW, font=MONO_B)
+        d.tag_config("hr",           foreground=BORDER,    font=("Monospace", 6), spacing1=4, spacing3=4)
+        d.tag_config("kw",           foreground=FG_MAUVE,  font=MONO_B)
+        d.tag_config("kw_type",      foreground=FG_YELLOW, font=MONO)
+        d.tag_config("kw_string",    foreground=FG_GREEN,  font=MONO)
+        d.tag_config("kw_comment",   foreground=FG_DIM,    font=MONO_I)
+        d.tag_config("kw_number",    foreground=FG_PINK,   font=MONO)
+
+    # ── Drag ─────────────────────────────────────────────────────────
     def _drag_start(self, event):
         self._drag_x = event.x_root - self.root.winfo_x()
         self._drag_y = event.y_root - self.root.winfo_y()
@@ -212,16 +239,36 @@ class ChatWindow:
     def _drag_motion(self, event):
         self.root.geometry(f"+{event.x_root - self._drag_x}+{event.y_root - self._drag_y}")
 
-    # ── Fade in ─────────────────────────────────────────────────────
+    # ── Fade in ──────────────────────────────────────────────────────
     def _fade_in(self, alpha=0.0):
         alpha = min(alpha + 0.07, 1.0)
         self.root.attributes("-alpha", alpha)
         if alpha < 1.0:
             self.root.after(16, self._fade_in, alpha)
 
-    # ── Spinner ─────────────────────────────────────────────────────
+    # ── Shimmer ──────────────────────────────────────────────────────
+    def _start_shimmer(self):
+        self._shimmer_pos = -200
+        self._tick_shimmer()
+
+    def _tick_shimmer(self):
+        w = max(self.shimmer_canvas.winfo_width(), 680)
+        x = self._shimmer_pos
+        self.shimmer_canvas.coords(self._shimmer_rect, x, 0, x + 200, 2)
+        self._shimmer_pos += 10
+        if self._shimmer_pos < w + 200:
+            self._shimmer_job = self.root.after(16, self._tick_shimmer)
+        else:
+            self._start_shimmer()  # loop until stopped
+
+    def _stop_shimmer(self):
+        if self._shimmer_job:
+            self.root.after_cancel(self._shimmer_job)
+            self._shimmer_job = None
+        self.shimmer_canvas.coords(self._shimmer_rect, 0, 0, 0, 0)
+
+    # ── Spinner ──────────────────────────────────────────────────────
     def _start_spinner(self):
-        self._spinner_mark = self.display.index(tk.END)
         self.display.config(state=tk.NORMAL)
         self.display.insert(tk.END, " " + SPINNER_FRAMES[0], "spinner")
         self.display.config(state=tk.DISABLED)
@@ -230,7 +277,6 @@ class ChatWindow:
     def _tick_spinner(self):
         self._spinner_index = (self._spinner_index + 1) % len(SPINNER_FRAMES)
         self.display.config(state=tk.NORMAL)
-        # Replace last char (the spinner frame)
         self.display.delete("end-2c", "end-1c")
         self.display.insert("end-1c", SPINNER_FRAMES[self._spinner_index], "spinner")
         self.display.config(state=tk.DISABLED)
@@ -240,39 +286,198 @@ class ChatWindow:
         if self._spinner_job:
             self.root.after_cancel(self._spinner_job)
             self._spinner_job = None
-        # Remove the spinner character
         self.display.config(state=tk.NORMAL)
         self.display.delete("end-2c", tk.END)
         self.display.config(state=tk.DISABLED)
 
-    # ── Blinking cursor ─────────────────────────────────────────────
-    def _start_cursor(self):
-        self._cursor_visible = True
-        self.display.config(state=tk.NORMAL)
-        self.display.insert(tk.END, "▊", "cursor")
-        self.display.config(state=tk.DISABLED)
-        self._cursor_job = self.root.after(500, self._tick_cursor)
+    # ── Placeholder ──────────────────────────────────────────────────
+    def _set_placeholder(self):
+        self.input.delete("1.0", tk.END)
+        self.input.insert("1.0", "ask a follow-up…")
+        self.input.config(fg=PLACEHOLDER)
+        self._placeholder_active = True
 
-    def _tick_cursor(self):
-        self._cursor_visible = not self._cursor_visible
-        self.display.config(state=tk.NORMAL)
-        self.display.delete("end-2c", "end-1c")
-        self.display.insert("end-1c", "▊" if self._cursor_visible else " ", "cursor")
-        self.display.config(state=tk.DISABLED)
-        self._cursor_job = self.root.after(500, self._tick_cursor)
+    def _input_focus_in(self, event):
+        if self._placeholder_active:
+            self.input.delete("1.0", tk.END)
+            self.input.config(fg=FG_MAIN)
+            self._placeholder_active = False
 
-    def _stop_cursor(self):
-        if self._cursor_job:
-            self.root.after_cancel(self._cursor_job)
-            self._cursor_job = None
-        self.display.config(state=tk.NORMAL)
-        # Remove trailing cursor char
-        last = self.display.get("end-2c", "end-1c")
-        if last in ("▊", " "):
-            self.display.delete("end-2c", "end-1c")
-        self.display.config(state=tk.DISABLED)
+    def _input_focus_out(self, event):
+        if not self.input.get("1.0", tk.END).strip():
+            self._set_placeholder()
 
-    # ── Display ─────────────────────────────────────────────────────
+    # ── Input flash ──────────────────────────────────────────────────
+    def _flash_input(self):
+        self.input_frame.config(bg=ACCENT)
+        self.input.config(bg=ACCENT)
+        self.root.after(80, self._flash_restore)
+
+    def _flash_restore(self):
+        self.input_frame.config(bg=BG_INPUT)
+        self.input.config(bg=BG_INPUT)
+
+    # ── Markdown rendering ───────────────────────────────────────────
+    def _insert_inline(self, text, base_tags=()):
+        """Insert text with inline markdown: **bold**, *italic*, `code`."""
+        pattern = r'(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)'
+        parts = re.split(pattern, text)
+        for part in parts:
+            if part.startswith('***') and part.endswith('***'):
+                self.display.insert(tk.END, part[3:-3], ("bold_italic",) + base_tags)
+            elif part.startswith('**') and part.endswith('**'):
+                self.display.insert(tk.END, part[2:-2], ("bold",) + base_tags)
+            elif part.startswith('*') and part.endswith('*') and len(part) > 2:
+                self.display.insert(tk.END, part[1:-1], ("italic",) + base_tags)
+            elif part.startswith('`') and part.endswith('`') and len(part) > 2:
+                self.display.insert(tk.END, part[1:-1], "inline_code")
+            else:
+                tags = base_tags if base_tags else ("assistant",)
+                self.display.insert(tk.END, part, tags)
+
+    def _highlight_code(self, start_index, code):
+        """Apply basic syntax highlighting to a code block."""
+        d = self.display
+        lines = code.split('\n')
+        pos = start_index
+        for line in lines:
+            line_end = f"{pos}+{len(line)}c"
+            # Comments
+            comment_m = re.search(r'(#.*)$', line)
+            if comment_m:
+                cs = comment_m.start()
+                d.tag_add("kw_comment", f"{pos}+{cs}c", f"{pos}+{len(line)}c")
+            # Strings
+            for sm in re.finditer(r'(["\'])(?:(?!\1).|\\.)*\1', line):
+                d.tag_add("kw_string", f"{pos}+{sm.start()}c", f"{pos}+{sm.end()}c")
+            # Numbers
+            for nm in re.finditer(r'\b\d+\.?\d*\b', line):
+                d.tag_add("kw_number", f"{pos}+{nm.start()}c", f"{pos}+{nm.end()}c")
+            # Keywords
+            for word in re.finditer(r'\b\w+\b', line):
+                w = word.group()
+                if w in KW_KEYWORDS:
+                    d.tag_add("kw", f"{pos}+{word.start()}c", f"{pos}+{word.end()}c")
+                elif w in KW_TYPES:
+                    d.tag_add("kw_type", f"{pos}+{word.start()}c", f"{pos}+{word.end()}c")
+            pos = d.index(f"{pos}+{len(line)+1}c")
+
+    def _render_line(self, line):
+        """Render a single markdown line into the display."""
+        d = self.display
+        d.config(state=tk.NORMAL)
+        if line.startswith("# "):
+            d.insert(tk.END, "\n")
+            self._insert_inline(line[2:] + "\n", ("h1",))
+        elif line.startswith("## "):
+            d.insert(tk.END, "\n")
+            self._insert_inline(line[3:] + "\n", ("h2",))
+        elif line.startswith("### "):
+            self._insert_inline(line[4:] + "\n", ("h3",))
+        elif re.match(r"^[-*_]{3,}$", line.strip()):
+            d.insert(tk.END, "─" * 72 + "\n", "hr")
+        elif re.match(r"^[-*+] ", line):
+            d.insert(tk.END, "  • ", "bullet_marker")
+            self._insert_inline(line[2:] + "\n", ("bullet",))
+        elif re.match(r"^\d+\. ", line):
+            m = re.match(r"^(\d+)\. (.*)", line)
+            d.insert(tk.END, f"  {m.group(1)}. ", "num_marker")
+            self._insert_inline(m.group(2) + "\n", ("numbered",))
+        elif not line.strip():
+            d.insert(tk.END, "\n")
+        else:
+            self._insert_inline(line + "\n", ())
+        d.see(tk.END)
+        d.config(state=tk.DISABLED)
+
+    def _render_code_block(self, lines):
+        """Render a complete fenced code block with syntax highlighting."""
+        d = self.display
+        d.config(state=tk.NORMAL)
+        code = "\n".join(lines)
+        d.insert(tk.END, "\n")
+        code_start = d.index(tk.END)
+        d.insert(tk.END, code + "\n", "code_block")
+        self._highlight_code(code_start, code)
+        d.insert(tk.END, "\n")
+        d.see(tk.END)
+        d.config(state=tk.DISABLED)
+
+    def _render_markdown(self, text):
+        """Render markdown text into the display widget."""
+        d = self.display
+        d.config(state=tk.NORMAL)
+
+        lines = text.split('\n')
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+
+            # Fenced code block
+            if line.startswith('```'):
+                code_lines = []
+                i += 1
+                while i < len(lines) and not lines[i].startswith('```'):
+                    code_lines.append(lines[i])
+                    i += 1
+                code = '\n'.join(code_lines)
+                d.insert(tk.END, '\n')
+                code_start = d.index(tk.END)
+                d.insert(tk.END, code + '\n', "code_block")
+                self._highlight_code(code_start, code)
+                d.insert(tk.END, '\n')
+                i += 1
+                continue
+
+            # H1
+            if line.startswith('# '):
+                d.insert(tk.END, '\n')
+                self._insert_inline(line[2:] + '\n', ("h1",))
+                i += 1; continue
+
+            # H2
+            if line.startswith('## '):
+                d.insert(tk.END, '\n')
+                self._insert_inline(line[3:] + '\n', ("h2",))
+                i += 1; continue
+
+            # H3
+            if line.startswith('### '):
+                self._insert_inline(line[4:] + '\n', ("h3",))
+                i += 1; continue
+
+            # HR
+            if re.match(r'^[-*_]{3,}$', line.strip()):
+                d.insert(tk.END, '─' * 72 + '\n', "hr")
+                i += 1; continue
+
+            # Bullet
+            if re.match(r'^[-*+] ', line):
+                d.insert(tk.END, '  • ', "bullet_marker")
+                self._insert_inline(line[2:] + '\n', ("bullet",))
+                i += 1; continue
+
+            # Numbered list
+            m = re.match(r'^(\d+)\. (.*)', line)
+            if m:
+                d.insert(tk.END, f'  {m.group(1)}. ', "num_marker")
+                self._insert_inline(m.group(2) + '\n', ("numbered",))
+                i += 1; continue
+
+            # Blank line
+            if not line.strip():
+                d.insert(tk.END, '\n')
+                i += 1; continue
+
+            # Normal paragraph line
+            self._insert_inline(line + '\n', ())
+            i += 1
+
+        d.insert(tk.END, '\n')
+        d.see(tk.END)
+        d.config(state=tk.DISABLED)
+
+    # ── Display ──────────────────────────────────────────────────────
     def append(self, text, tag=None):
         self.display.config(state=tk.NORMAL)
         if tag:
@@ -282,63 +487,83 @@ class ChatWindow:
         self.display.see(tk.END)
         self.display.config(state=tk.DISABLED)
 
-    # ── Input ───────────────────────────────────────────────────────
+    # ── Input ────────────────────────────────────────────────────────
     def on_enter(self, event):
         if not event.state & 0x1:
             self.send_current()
             return "break"
 
     def send_current(self):
+        if self._placeholder_active:
+            return
         query = self.input.get("1.0", tk.END).strip()
         if not query:
             return
         self.input.delete("1.0", tk.END)
+        self._set_placeholder()
+        self._flash_input()
         self.ask(query)
 
     def ask(self, query):
         self.append(f"\nyou: {query}\n", "user")
         self.history.append({"role": "user", "content": query})
+        self._start_shimmer()
         self._start_spinner()
         threading.Thread(target=self._stream, daemon=True).start()
 
+    # ── Stream ───────────────────────────────────────────────────────
     def _stream(self):
-        first_chunk = True
-        response_text = ""
+        line_buffer = ""
+        full_response = ""
+        in_code_block = False
+        code_block_lines = []
+        first_line = True
+
+        def flush_line(line):
+            nonlocal first_line, in_code_block, code_block_lines
+            if first_line:
+                self.root.after(0, self._stop_shimmer)
+                self.root.after(0, self._stop_spinner)
+                first_line = False
+            if in_code_block:
+                if line.startswith("```"):
+                    self.root.after(0, self._render_code_block, list(code_block_lines))
+                    code_block_lines = []
+                    in_code_block = False
+                else:
+                    code_block_lines.append(line)
+            elif line.startswith("```"):
+                in_code_block = True
+            else:
+                self.root.after(0, self._render_line, line)
+
         try:
             stream = self.client.chat.completions.create(
-                model=MODEL,
-                messages=self.history,
-                stream=True,
+                model=MODEL, messages=self.history, stream=True,
             )
             for chunk in stream:
                 delta = chunk.choices[0].delta.content or ""
-                if delta:
-                    if first_chunk:
-                        self.root.after(0, self._stop_spinner)
-                        self.root.after(0, self._start_cursor)
-                        first_chunk = False
-                    response_text += delta
-                    self.root.after(0, self._stream_chunk, delta)
+                full_response += delta
+                line_buffer += delta
+                while "\n" in line_buffer:
+                    line, line_buffer = line_buffer.split("\n", 1)
+                    flush_line(line)
         except Exception as e:
+            self.root.after(0, self._stop_shimmer)
             self.root.after(0, self._stop_spinner)
             self.root.after(0, self.append, f"\n[error: {e}]\n", "dim")
             return
 
-        self.history.append({"role": "assistant", "content": response_text})
-        self.root.after(0, self._stop_cursor)
-        self.root.after(0, self.append, "\n")
+        if line_buffer:
+            flush_line(line_buffer)
 
-    def _stream_chunk(self, delta):
-        # Insert before the blinking cursor
-        self.display.config(state=tk.NORMAL)
-        self.display.insert("end-2c", delta, "assistant")
-        self.display.see(tk.END)
-        self.display.config(state=tk.DISABLED)
+        self.history.append({"role": "assistant", "content": full_response})
+        self.root.after(0, self._stop_shimmer)
+        self.root.after(0, self._stop_spinner)
 
 
 def main():
     query = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else get_selection()
-
     root = tk.Tk()
     ChatWindow(root, query)
     root.mainloop()
