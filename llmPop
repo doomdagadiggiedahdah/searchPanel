@@ -40,7 +40,6 @@ FG_PINK     = "#f38ba8"
 FG_MAUVE    = "#cba6f7"
 ACCENT      = "#89b4fa"
 BORDER      = "#45475a"
-PLACEHOLDER = "#45475a"
 
 MONO  = ("Monospace", 11)
 MONO_B = ("Monospace", 11, "bold")
@@ -76,7 +75,6 @@ class ChatWindow:
         self._spinner_job = None
         self._shimmer_job = None
         self._shimmer_pos = 0
-        self._placeholder_active = False
         self.history = [
             {
                 "role": "system",
@@ -175,10 +173,7 @@ class ChatWindow:
         )
         self.input.pack(fill=tk.X, side=tk.LEFT, expand=True)
         self.input.bind("<Return>",       self.on_enter)
-        self.input.bind("<FocusIn>",      self._input_focus_in)
-        self.input.bind("<FocusOut>",     self._input_focus_out)
         self.input.focus_set()
-        self._set_placeholder()
 
         send_btn = tk.Label(
             self.input_frame, text="↵",
@@ -291,21 +286,6 @@ class ChatWindow:
         self.display.config(state=tk.DISABLED)
 
     # ── Placeholder ──────────────────────────────────────────────────
-    def _set_placeholder(self):
-        self.input.delete("1.0", tk.END)
-        self.input.insert("1.0", "ask a follow-up…")
-        self.input.config(fg=PLACEHOLDER)
-        self._placeholder_active = True
-
-    def _input_focus_in(self, event):
-        if self._placeholder_active:
-            self.input.delete("1.0", tk.END)
-            self.input.config(fg=FG_MAIN)
-            self._placeholder_active = False
-
-    def _input_focus_out(self, event):
-        if not self.input.get("1.0", tk.END).strip():
-            self._set_placeholder()
 
     # ── Input flash ──────────────────────────────────────────────────
     def _flash_input(self):
@@ -494,13 +474,10 @@ class ChatWindow:
             return "break"
 
     def send_current(self):
-        if self._placeholder_active:
-            return
         query = self.input.get("1.0", tk.END).strip()
         if not query:
             return
         self.input.delete("1.0", tk.END)
-        self._set_placeholder()
         self._flash_input()
         self.ask(query)
 
