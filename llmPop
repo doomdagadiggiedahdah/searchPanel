@@ -41,12 +41,13 @@ FG_MAUVE    = "#cba6f7"
 ACCENT      = "#89b4fa"
 BORDER      = "#45475a"
 
+BODY  = ("Atkinson Hyperlegible", 11)
 MONO  = ("Monospace", 11)
 MONO_B = ("Monospace", 11, "bold")
 MONO_I = ("Monospace", 11, "italic")
 MONO_BI = ("Monospace", 11, "bold italic")
-SANS  = ("Sans", 13, "bold")
-SANS2 = ("Sans", 12, "bold")
+SANS  = ("Atkinson Hyperlegible", 13, "bold")
+SANS2 = ("Atkinson Hyperlegible", 12, "bold")
 
 # Basic syntax highlight keyword sets
 KW_KEYWORDS  = {"def", "class", "return", "import", "from", "if", "else", "elif",
@@ -172,7 +173,7 @@ class ChatWindow:
         self.display = scrolledtext.ScrolledText(
             inner,
             wrap=tk.WORD, bg=BG, fg=FG_MAIN,
-            font=MONO, relief=tk.FLAT,
+            font=BODY, relief=tk.FLAT,
             padx=16, pady=12,
             state=tk.DISABLED, cursor="arrow",
             selectbackground="#45475a",
@@ -190,7 +191,7 @@ class ChatWindow:
 
         self.input = tk.Text(
             self.input_frame, height=2,
-            bg=BG_INPUT, fg=FG_MAIN, font=MONO,
+            bg=BG_INPUT, fg=FG_MAIN, font=BODY,
             relief=tk.FLAT, padx=6, pady=4,
             insertbackground=ACCENT,
         )
@@ -225,23 +226,23 @@ class ChatWindow:
     # ── Tags ─────────────────────────────────────────────────────────
     def _setup_tags(self):
         d = self.display
-        d.tag_config("user",         foreground=FG_USER,   font=MONO_B, spacing1=6)
-        d.tag_config("assistant",    foreground=FG_MAIN,   font=MONO)
-        d.tag_config("dim",          foreground=FG_DIM,    font=MONO)
-        d.tag_config("spinner",      foreground=ACCENT,    font=("Monospace", 13, "bold"))
-        d.tag_config("bold",         foreground=FG_MAIN,   font=MONO_B)
-        d.tag_config("italic",       foreground=FG_MAIN,   font=MONO_I)
-        d.tag_config("bold_italic",  foreground=FG_MAIN,   font=MONO_BI)
+        d.tag_config("user",         foreground=FG_USER,   font=("Atkinson Hyperlegible", 11, "bold"), spacing1=6)
+        d.tag_config("assistant",    foreground=FG_MAIN,   font=BODY)
+        d.tag_config("dim",          foreground=FG_DIM,    font=BODY)
+        d.tag_config("spinner",      foreground=ACCENT,    font=("Atkinson Hyperlegible", 13, "bold"))
+        d.tag_config("bold",         foreground=FG_MAIN,   font=("Atkinson Hyperlegible", 11, "bold"))
+        d.tag_config("italic",       foreground=FG_MAIN,   font=("Atkinson Hyperlegible", 11, "italic"))
+        d.tag_config("bold_italic",  foreground=FG_MAIN,   font=("Atkinson Hyperlegible", 11, "bold italic"))
         d.tag_config("h1",           foreground=ACCENT,    font=("Sans", 14, "bold"), spacing1=8, spacing3=4)
         d.tag_config("h2",           foreground=FG_MAUVE,  font=("Sans", 12, "bold"), spacing1=6, spacing3=2)
-        d.tag_config("h3",           foreground=FG_MAIN,   font=MONO_B, spacing1=4)
+        d.tag_config("h3",           foreground=FG_MAIN,   font=("Atkinson Hyperlegible", 11, "bold"), spacing1=4)
         d.tag_config("inline_code",  foreground=FG_GREEN,  background=BG_CODE, font=MONO)
         d.tag_config("code_block",   foreground=FG_GREEN,  background=BG_CODE,
                      font=MONO, lmargin1=20, lmargin2=20, spacing1=4, spacing3=4)
-        d.tag_config("bullet",       foreground=FG_MAIN,   font=MONO, lmargin1=10, lmargin2=28)
-        d.tag_config("bullet_marker",foreground=ACCENT,    font=MONO_B)
-        d.tag_config("numbered",     foreground=FG_MAIN,   font=MONO, lmargin1=10, lmargin2=28)
-        d.tag_config("num_marker",   foreground=FG_YELLOW, font=MONO_B)
+        d.tag_config("bullet",       foreground=FG_MAIN,   font=BODY, lmargin1=10, lmargin2=28)
+        d.tag_config("bullet_marker",foreground=ACCENT,    font=("Atkinson Hyperlegible", 11, "bold"))
+        d.tag_config("numbered",     foreground=FG_MAIN,   font=BODY, lmargin1=10, lmargin2=28)
+        d.tag_config("num_marker",   foreground=FG_YELLOW, font=("Atkinson Hyperlegible", 11, "bold"))
         d.tag_config("hr",           foreground=BORDER,    font=("Monospace", 6), spacing1=4, spacing3=4)
         d.tag_config("kw",           foreground=FG_MAUVE,  font=MONO_B)
         d.tag_config("kw_type",      foreground=FG_YELLOW, font=MONO)
