@@ -15,6 +15,9 @@ _venv_site = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           ".venv/lib/python3.12/site-packages")
 if _venv_site not in sys.path:
     sys.path.insert(0, _venv_site)
+    # process editable installs (.pth files) manually
+    import site
+    site.addsitedir(_venv_site)
 
 from llmpop import ChatWindow
 
